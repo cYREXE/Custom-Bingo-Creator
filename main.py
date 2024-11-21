@@ -11,12 +11,8 @@ MIN_FONT_SIZE = 8
 
 # Hardcoded Templates
 TEMPLATES = {
-    "Tobias Bingo": [
-        '"nu rör jag till det lite"', '" jag tappade bort mig lite grann"', "Börjar skriva något på tavlan men avbryter mitt i och byter till dator", "Byter från ChatGPT till Claude", '"IN FACT"',
-        '"jag ska se om jag kommer ihåg detta" *-letar igenom dokumentation*', "ändrar typ på samma variabel två gånger", '"blablablablabla"', '"Vad var det jag skulle gå igenom ?"', "ångrar sig",
-        '"Åh vad jobbigt"', '"LaLaLa"', "säger en sak och motsäger sig själv i samma mening", "tar upp en penna men ångrar sig och lägger ner pennan igen utan att skriva något", "nämner ett lunchställe",
-        "Personlig anekdot i början av lektionen", "Ändrar schemat under lektionen", "Försöker komma på ett exempel, men ger upp och frågar AI istället", "Sätter sig ner men bara i någon minut", '“Jag tänker att vi går igenom det nästa gång”',
-        "Retorisk fråga", "Kommer sent till lektionen efter lunchrasten", '“Jag har inte gjort detta på ett år”', "Nämner ett projekt han jobbat på tidigare",'Får en error och frågar klassen “Varför fick jag en error nu?”'
+    "Title": [
+
     ],
 
 }
