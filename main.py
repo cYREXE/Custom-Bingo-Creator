@@ -108,8 +108,16 @@ def host_game_gui():
             messagebox.showerror("Error", "Please provide a title and at least 24 items.")
             return
         setup_window.destroy()
+
+        # Start hosting
         host = BingoHost(title, items)
         host.start_server()
+
+        # Show the host's Bingo card
+        host_card = host.create_bingo_card()
+        show_bingo_card(title, host_card)
+
+        # Notify host of successful hosting
         messagebox.showinfo("Hosting", f"Hosting game '{title}'. Share your IP with others.")
 
     tk.Button(setup_window, text="Start Hosting", font=("Arial", 14), command=start_hosting).pack(pady=10)
