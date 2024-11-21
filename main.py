@@ -1,182 +1,255 @@
 import tkinter as tk
-from tkinter import simpledialog, messagebox
-import socket
-import threading
-import json
+from tkinter import messagebox
 import random
 import textwrap
 
 GRID_SIZE = 5
 FREE_SPACE = "FREE"
-BUFFER_SIZE = 1024
-DEFAULT_PORT = 5000
+DEFAULT_SQUARE_SIZE = 100
+MAX_FONT_SIZE = 16
+MIN_FONT_SIZE = 8
 
-# Networking Utilities
-def send_message(sock, data):
-    """Send a JSON-encoded message over a socket."""
-    message = json.dumps(data).encode('utf-8')
-    sock.sendall(message)
+# Hardcoded Templates
+TEMPLATES = {
+    "Tobias Bingo": [
+        '"nu rör jag till det lite"', '" jag tappade bort mig lite grann"', "Börjar skriva något på tavlan men avbryter mitt i och byter till dator", "Byter från ChatGPT till Claude", '"IN FACT"',
+        '"jag ska se om jag kommer ihåg detta" *-letar igenom dokumentation*', "ändrar typ på samma variabel två gånger", '"blablablablabla"', '"Vad var det jag skulle gå igenom ?"', "ångrar sig",
+        '"Åh vad jobbigt"', '"LaLaLa"', "säger en sak och motsäger sig själv i samma mening", "tar upp en penna men ångrar sig och lägger ner pennan igen utan att skriva något", "nämner ett lunchställe",
+        "Personlig anekdot i början av lektionen", "Ändrar schemat under lektionen", "Försöker komma på ett exempel, men ger upp och frågar AI istället", "Sätter sig ner men bara i någon minut", '“Jag tänker att vi går igenom det nästa gång”',
+        "Retorisk fråga", "Kommer sent till lektionen efter lunchrasten", '“Jag har inte gjort detta på ett år”', "Nämner ett projekt han jobbat på tidigare",'Får en error och frågar klassen “Varför fick jag en error nu?”'
+    ],
 
-
-def receive_message(sock):
-    """Receive a JSON-encoded message over a socket."""
-    data = b""
-    while True:
-        part = sock.recv(BUFFER_SIZE)
-        if not part:
-            break
-        data += part
-    return json.loads(data.decode('utf-8'))
+}
 
 
-# Host a Game
-class BingoHost:
-    def __init__(self, title, items, port=DEFAULT_PORT):
+# Core Bingo Game Logic
+class BingoGame:
+    def __init__(self, root, title, card):
+        self.root = root
+        self.root.geometry("600x600") 
         self.title = title
-        self.items = items
-        self.port = port
-        self.clients = []
+        self.card = card
+        self.canvas = tk.Canvas(root, highlightthickness=0)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.squares = {}  # To store square references
+        self.colors = {}  # To track square colors
+        self.root.bind("<Configure>", self.update_canvas)
+        self.canvas.bind("<Button-1>", self.handle_click)  # Bind clicks to the canvas
+        self.update_canvas(None)
 
-    def start_server(self):
-        """Start the Bingo host server."""
-        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.bind(('', self.port))
-        server.listen(5)
-        threading.Thread(target=self.accept_clients, args=(server,), daemon=True).start()
-        print(f"Hosting Bingo game '{self.title}' on port {self.port}...")
+    def update_canvas(self, event):
+        """Update the canvas elements when the window is resized."""
+        self.canvas.delete("all")
+        self.square_size = max(
+            min(self.canvas.winfo_width() // GRID_SIZE, self.canvas.winfo_height() // GRID_SIZE),
+            20,
+        )
+        for row in range(GRID_SIZE):
+            for col in range(GRID_SIZE):
+                x0 = col * self.square_size
+                y0 = row * self.square_size
+                x1 = x0 + self.square_size
+                y1 = y0 + self.square_size
 
-    def accept_clients(self, server):
-        """Accept incoming client connections."""
-        while True:
-            client, address = server.accept()
-            print(f"Client connected from {address}")
-            self.clients.append(client)
-            threading.Thread(target=self.handle_client, args=(client,), daemon=True).start()
+                # Draw the square
+                square = self.canvas.create_rectangle(
+                    x0, y0, x1, y1, fill="white", outline="black"
+                )
+                self.squares[(row, col)] = (square, x0, y0, x1, y1)
+                self.colors[(row, col)] = "white"
 
-    def handle_client(self, client):
-        """Handle communication with a client."""
-        try:
-            send_message(client, {"title": self.title, "items": self.items})
-            request = receive_message(client)
-            if request.get("action") == "get_card":
-                card = self.create_bingo_card()
-                send_message(client, {"card": card})
-        except (socket.error, json.JSONDecodeError):
-            print("Client disconnected.")
-        finally:
-            client.close()
+                # Add text to the square
+                text = self.card[row][col]
+                max_width = max(int(self.square_size / 10), 1)
+                wrapped_text = wrap_text(text, max_width)
+                font_size = get_font_size(self.canvas, wrapped_text, self.square_size)
+                self.canvas.create_text(
+                    (x0 + x1) / 2,
+                    (y0 + y1) / 2,
+                    text=wrapped_text,
+                    font=(f"Arial", font_size),
+                    fill="black",
+                    justify="center",
+                )
 
-    def create_bingo_card(self):
-        """Create a randomized Bingo card for the client."""
-        return random.sample(self.items, GRID_SIZE**2 - 1)
+    def handle_click(self, event):
+        """Handle mouse click and determine which square was clicked."""
+        for (row, col), (square, x0, y0, x1, y1) in self.squares.items():
+            if x0 <= event.x <= x1 and y0 <= event.y <= y1:
+                self.toggle_square(row, col)
+                break
 
+    def toggle_square(self, row, col):
+        """Toggle the color of a square when clicked."""
+        current_color = self.colors[(row, col)]
+        new_color = "yellow" if current_color == "white" else "white"
+        self.canvas.itemconfig(self.squares[(row, col)][0], fill=new_color)
+        self.colors[(row, col)] = new_color
 
-# Join a Game
-class BingoClient:
-    def __init__(self, host, port=DEFAULT_PORT):
-        self.host = host
-        self.port = port
+        if self.check_bingo():
+            self.flash_bingo()
 
-    def connect_to_host(self):
-        """Connect to the Bingo host."""
-        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client.connect((self.host, self.port))
-        game_data = receive_message(client)
-        send_message(client, {"action": "get_card"})
-        response = receive_message(client)
-        return game_data, response["card"]
+    def check_bingo(self):
+        """Check if there is a Bingo."""
+        # Check rows and columns
+        for i in range(GRID_SIZE):
+            if all(self.colors[(i, j)] == "yellow" for j in range(GRID_SIZE)):
+                self.bingo_line = [(i, j) for j in range(GRID_SIZE)]
+                return True
+            if all(self.colors[(j, i)] == "yellow" for j in range(GRID_SIZE)):
+                self.bingo_line = [(j, i) for j in range(GRID_SIZE)]
+                return True
 
+        # Check diagonals
+        if all(self.colors[(i, i)] == "yellow" for i in range(GRID_SIZE)):
+            self.bingo_line = [(i, i) for i in range(GRID_SIZE)]
+            return True
+        if all(self.colors[(i, GRID_SIZE - i - 1)] == "yellow" for i in range(GRID_SIZE)):
+            self.bingo_line = [(i, GRID_SIZE - i - 1) for i in range(GRID_SIZE)]
+            return True
 
-# GUI Components
-def host_game_gui():
-    """GUI for hosting a Bingo game."""
-    setup_window = tk.Tk()
-    setup_window.title("Host a Game")
+        return False
 
-    tk.Label(setup_window, text="Game Title:", font=("Arial", 14)).pack(pady=5)
-    title_entry = tk.Entry(setup_window, font=("Arial", 14), width=30)
-    title_entry.pack(pady=5)
+    def flash_bingo(self):
+        """Flash the Bingo row, column, or diagonal green."""
+        self.flash_state = True
+        self.flash_line()
 
-    tk.Label(setup_window, text="Bingo Items (one per line):", font=("Arial", 14)).pack(pady=5)
-    items_text = tk.Text(setup_window, font=("Arial", 12), width=30, height=10)
-    items_text.pack(pady=5)
-
-    def start_hosting():
-        title = title_entry.get().strip()
-        items = items_text.get("1.0", tk.END).strip().splitlines()
-        if not title or len(items) < GRID_SIZE**2 - 1:
-            messagebox.showerror("Error", "Please provide a title and at least 24 items.")
-            return
-        setup_window.destroy()
-
-        # Start hosting
-        host = BingoHost(title, items)
-        host.start_server()
-
-        # Show the host's Bingo card
-        host_card = host.create_bingo_card()
-        show_bingo_card(title, host_card)
-
-        # Notify host of successful hosting
-        messagebox.showinfo("Hosting", f"Hosting game '{title}'. Share your IP with others.")
-
-    tk.Button(setup_window, text="Start Hosting", font=("Arial", 14), command=start_hosting).pack(pady=10)
-
-    setup_window.mainloop()
-
-
-def join_game_gui():
-    """GUI for joining a Bingo game."""
-    join_window = tk.Tk()
-    join_window.title("Join a Game")
-
-    tk.Label(join_window, text="Enter Host IP Address:", font=("Arial", 14)).pack(pady=5)
-    ip_entry = tk.Entry(join_window, font=("Arial", 14), width=30)
-    ip_entry.pack(pady=5)
-
-    def connect_to_host():
-        host_ip = ip_entry.get().strip()
-        if not host_ip:
-            messagebox.showerror("Error", "Please enter a valid IP address.")
-            return
-        try:
-            client = BingoClient(host_ip)
-            game_data, card = client.connect_to_host()
-            messagebox.showinfo("Connected", f"Joined game: {game_data['title']}")
-            show_bingo_card(game_data['title'], card)
-        except (socket.error, json.JSONDecodeError):
-            messagebox.showerror("Error", "Failed to connect to host.")
-            return
-
-    tk.Button(join_window, text="Join Game", font=("Arial", 14), command=connect_to_host).pack(pady=10)
-
-    join_window.mainloop()
+    def flash_line(self):
+        """Toggle the color of the Bingo line."""
+        color = "green" if self.flash_state else "yellow"
+        for row, col in self.bingo_line:
+            self.canvas.itemconfig(self.squares[(row, col)][0], fill=color)
+        self.flash_state = not self.flash_state
+        self.root.after(500, self.flash_line)
 
 
-def show_bingo_card(title, card):
-    """Display the Bingo card."""
-    card_window = tk.Tk()
-    card_window.title(title)
+# Utility Functions
+def create_bingo_card(contents):
+    """Create a Bingo card grid from a list of contents with randomized placement."""
+    if len(contents) > GRID_SIZE**2 - 1:
+        selected_contents = random.sample(contents, GRID_SIZE**2 - 1)
+    else:
+        selected_contents = contents[:]
 
+    random.shuffle(selected_contents)  # Shuffle the selected items for random placement
+
+    card = []
     for i in range(GRID_SIZE):
-        for j in range(GRID_SIZE):
-            item = FREE_SPACE if i == GRID_SIZE // 2 and j == GRID_SIZE // 2 else card.pop(0)
-            tk.Label(card_window, text=item, font=("Arial", 12), width=10, height=2, relief="solid").grid(row=i, column=j, padx=5, pady=5)
+        card.append([""] * GRID_SIZE)
 
-    card_window.mainloop()
+    mid = GRID_SIZE // 2
+    index = 0
+    for row in range(GRID_SIZE):
+        for col in range(GRID_SIZE):
+            if row == mid and col == mid:
+                card[row][col] = FREE_SPACE  # Center square is always "FREE"
+            else:
+                card[row][col] = selected_contents[index]
+                index += 1
+
+    return card
+
+def wrap_text(text, max_width):
+    """Wrap text into multiple lines to fit within a square."""
+    if max_width <= 0:
+        max_width = 1
+    return textwrap.fill(text, width=max_width)
 
 
+def get_font_size(canvas, text, square_size):
+    """Calculate the font size to fit the text within a dynamically sized square."""
+    font_size = MAX_FONT_SIZE
+    while font_size >= MIN_FONT_SIZE:
+        temp_id = canvas.create_text(0, 0, text=text, font=(f"Arial", font_size))
+        bbox = canvas.bbox(temp_id)
+        canvas.delete(temp_id)
+
+        if bbox[2] - bbox[0] <= square_size - 10 and bbox[3] - bbox[1] <= square_size - 10:
+            return font_size
+        font_size -= 1
+    return font_size
+
+
+# Screens
 def main_menu():
-    """Main menu GUI."""
+    """Display the initial screen with options to Host or Join a Game."""
     root = tk.Tk()
     root.title("Bingo Game")
 
     tk.Label(root, text="Welcome to Bingo!", font=("Arial", 24)).pack(pady=20)
 
-    tk.Button(root, text="Host a Game", font=("Arial", 16), command=lambda: (root.destroy(), host_game_gui())).pack(pady=10)
-    tk.Button(root, text="Join a Game", font=("Arial", 16), command=lambda: (root.destroy(), join_game_gui())).pack(pady=10)
+    tk.Button(root, text="Host a Game", font=("Arial", 16), command=lambda: (root.destroy(), template_selection())).pack(pady=10)
 
     root.mainloop()
+
+
+def template_selection():
+    """Allow the user to choose a template or create a custom card."""
+    template_window = tk.Tk()
+    template_window.title("Choose a Template")
+
+    tk.Label(template_window, text="Choose a Bingo Template or Create Your Own:", font=("Arial", 14)).pack(pady=10)
+
+    for template_name, items in TEMPLATES.items():
+        tk.Button(
+            template_window,
+            text=template_name,
+            font=("Arial", 12),
+            command=lambda name=template_name, items=items: use_template(template_window, name, items)
+        ).pack(pady=5)
+
+    tk.Button(
+        template_window,
+        text="Create Custom Card",
+        font=("Arial", 12),
+        command=lambda: (template_window.destroy(), setup_page())
+    ).pack(pady=10)
+
+    template_window.mainloop()
+
+
+def use_template(template_window, title, items):
+    """Use a selected template to start the game."""
+    template_window.destroy()
+    root = tk.Tk()
+    root.title(title)
+    card = create_bingo_card(items)
+    BingoGame(root, title, card)
+    root.mainloop()
+
+
+def setup_page():
+    """Display the setup page for entering title and contents."""
+    def submit_details():
+        title = title_entry.get()
+        contents = contents_text.get("1.0", tk.END).strip().splitlines()
+
+        if not title or len(contents) < GRID_SIZE**2 - 1:
+            messagebox.showerror("Error", "Please provide a title and at least 24 items.")
+            return
+
+        setup_window.destroy()
+        root = tk.Tk()
+        root.title("Bingo Game")
+        card = create_bingo_card(contents)
+        BingoGame(root, title, card)
+        root.mainloop()
+
+    setup_window = tk.Tk()
+    setup_window.title("Bingo Setup")
+
+    tk.Label(setup_window, text="Bingo Title:", font=("Arial", 14)).pack(pady=5)
+    title_entry = tk.Entry(setup_window, font=("Arial", 14), width=30)
+    title_entry.pack(pady=5)
+
+    tk.Label(setup_window, text="Bingo Items (one per line):", font=("Arial", 14)).pack(pady=5)
+    contents_text = tk.Text(setup_window, font=("Arial", 12), width=30, height=10)
+    contents_text.pack(pady=5)
+
+    tk.Button(setup_window, text="Create Bingo Card", font=("Arial", 14), command=submit_details).pack(pady=10)
+
+    setup_window.mainloop()
 
 
 # Run the Application
